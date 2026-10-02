@@ -454,6 +454,7 @@ struct RootView: View {
             ScrollView {
                 VStack(spacing: 8) {
                     ForEach(manager.displays) { DisplayCard(display: $0) }
+                    if Arrangement.participants(manager.displays).count > 1 { ArrangementCard() }
                     VirtualCard()
                 }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
@@ -635,5 +636,116 @@ struct ClearWindow: NSViewRepresentable {
             }
             if let root = w.contentView?.superview ?? w.contentView { hideMaterials(root) }
         }
+    }
+}
+
+// MARK: - Arrangement
+
+struct ArrangementCard: View {
+    @EnvironmentObject var manager: DisplayManager
+    @State private var open = CommandLine.arguments.contains("--open=arrange")
+    @State private var dragging: CGDirectDisplayID?
+    @State private var dragOffset: CGSize = .zero
+
+    var body: some View {
+        Card {
+            DrillRow(icon: "rectangle.3.group", title: "Arrangement", value: "\(Arrangement.participants(manager.displays).count) displays", open: $open) {
+                VStack(alignment: .leading, spacing: 8) {
+                    canvas
+                    Caption("Drag to rearrange · double-click to make main · snaps to edges and centers")
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private var canvas: some View {
+        GeometryReader { geo in
+            let frames = Arrangement.bounds(manager.displays)
+            let union = frames.values.reduce(CGRect.null) { $0.union($1) }
+            let map = CanvasMap(union: union, size: geo.size)
+            let scale = map.scale
+            let proposed: CGRect? = dragging.flatMap { id in
+                frames[id].map { $0.offsetBy(dx: dragOffset.width / scale, dy: dragOffset.height / scale) }
+            }
+            let snapped: CGRect? = dragging.flatMap { id in proposed.map { Arrangement.snap(id, proposed: $0, in: frames) } }
+
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 10, style: .continuous).fill(T.well)
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(T.hairline))
+                if let s = snapped {
+                    let c = map.rect(s)
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(T.ion.opacity(0.8), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                        .frame(width: c.width, height: c.height).offset(x: c.minX, y: c.minY)
+                }
+                ForEach(Arrangement.participants(manager.displays)) { d in
+                    if let f = frames[d.id] {
+                        let c = map.rect(f)
+                        let isDragging = dragging == d.id
+                        DisplayTile(display: d, size: c.size, highlighted: isDragging)
+                            .offset(x: c.minX + (isDragging ? dragOffset.width : 0), y: c.minY + (isDragging ? dragOffset.height : 0))
+                            .zIndex(isDragging ? 1 : 0)
+                            .onTapGesture(count: 2) { if !d.isMain { manager.makeMain(d) } }
+                            .gesture(DragGesture(minimumDistance: 2)
+                                .onChanged { g in dragging = d.id; dragOffset = g.translation }
+                                .onEnded { _ in
+                                    if let s = snapped, s.origin != f.origin {
+                                        var next = frames
+                                        next[d.id] = s
+                                        Arrangement.apply(next)
+                                    }
+                                    withAnimation(T.spring) { dragging = nil; dragOffset = .zero }
+                                })
+                    }
+                }
+            }
+        }
+        .frame(height: 150)
+    }
+}
+
+/// Maps global display coordinates into the arrangement canvas.
+struct CanvasMap {
+    let scale: CGFloat
+    let origin: CGPoint
+    init(union: CGRect, size: CGSize, pad: CGFloat = 14) {
+        scale = min((size.width - pad * 2) / max(union.width, 1), (size.height - pad * 2) / max(union.height, 1))
+        origin = CGPoint(x: (size.width - union.width * scale) / 2 - union.minX * scale,
+                         y: (size.height - union.height * scale) / 2 - union.minY * scale)
+    }
+    func rect(_ r: CGRect) -> CGRect {
+        CGRect(x: origin.x + r.minX * scale, y: origin.y + r.minY * scale, width: r.width * scale, height: r.height * scale)
+    }
+}
+
+struct DisplayTile: View {
+    @ObservedObject var display: Display
+    let size: CGSize
+    let highlighted: Bool
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(LinearGradient(colors: [T.hex(0x2A3140), T.hex(0x1A1F2A)], startPoint: .top, endPoint: .bottom))
+            if display.isMain {
+                Rectangle().fill(Color.white.opacity(0.35)).frame(height: max(2, size.height * 0.07))
+            }
+            VStack(spacing: 1) {
+                Text(display.isBuiltin ? "Built-in" : display.name).font(T.f(10, .medium)).foregroundStyle(T.text).lineLimit(1)
+                if size.height > 34, let c = display.current {
+                    Text(verbatim: "\(c.width)×\(c.height)").font(T.f(9)).monospacedDigit().foregroundStyle(T.text3)
+                }
+            }
+            .padding(.horizontal, 3)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: size.width, height: size.height)
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .strokeBorder(highlighted ? T.ion : Color.white.opacity(display.isMain ? 0.30 : 0.15), lineWidth: highlighted ? 1.5 : 1))
+        .shadow(color: .black.opacity(highlighted ? 0.4 : 0), radius: 6, y: 3)
+        .contentShape(Rectangle())
+        .help(display.name + (display.isMain ? " · main" : ""))
     }
 }

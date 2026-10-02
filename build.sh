@@ -17,3 +17,13 @@ cp Info.plist $APP/Contents/Info.plist
 cp -R Resources/Fonts $APP/Contents/Resources/
 codesign --force --sign - --identifier io.lumen.app $APP
 echo "Built $APP"
+
+# Standalone CLI (same sources, never launches the menu-bar UI)
+$DEVELOPER_DIR/usr/bin/swiftc -O -parse-as-library -swift-version 5 -sdk $SDK -D LUMEN_CLI \
+  -target arm64-apple-macos26.0 \
+  -framework AppKit -framework SwiftUI -framework MetalKit -framework IOKit -framework ServiceManagement \
+  -import-objc-header Sources/Bridge.h -framework ScreenCaptureKit -framework CoreImage -framework ColorSync \
+  -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker Info.plist \
+  Sources/*.swift -o build/lumen
+codesign --force --sign - --identifier io.lumen.cli build/lumen
+echo "Built build/lumen"

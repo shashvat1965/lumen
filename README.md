@@ -34,6 +34,7 @@
 
 ### Displays & virtual screens
 - Turn displays **on/off** without unplugging them. This only lasts for the session, and displays always come back when Lumen quits or relaunches.
+- **Arrangement**: drag displays around a live canvas, with snapping to edges and centers. Double-click to make a display main.
 - **Mirror**, **make main display**.
 - **Virtual screens** of any size, optionally HiDPI. Show one on a physical display to get **any scaled resolution** ("flexible scaling").
 - **Viewer window:** a live picture-in-picture of any display, with invert, grayscale, flip, rotate, opacity and keep-on-top.
@@ -50,6 +51,8 @@
 
 ## Install
 
+### App
+
 1. Download **Lumen.zip** from the [latest release](../../releases/latest) and move `Lumen.app` to `/Applications`.
 2. Lumen is ad-hoc signed, not notarized. On first launch, right-click the app and choose **Open**, or run:
    ```sh
@@ -59,6 +62,16 @@
 4. Optional: **Settings › Command-line tool › Install** adds `lumen` to your PATH.
 
 The viewer window asks for **Screen Recording** permission the first time you open it.
+
+### CLI only
+
+Don't want the menu-bar app? Install just the `lumen` command:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/shashvat1965/lumen/main/install-cli.sh | sh
+```
+
+You can also download **lumen-cli.zip** from the [latest release](../../releases/latest) and put `lumen` anywhere on your PATH. Without the app, everything works except XDR boost, software dimming, invert, virtual screens and the viewer, because those only last as long as a running app keeps them alive.
 
 **Requirements:** macOS 26 (Tahoe) on Apple Silicon. XDR boost needs a Liquid Retina XDR display. DDC needs a monitor with DDC/CI enabled in its on-screen menu.
 
@@ -87,6 +100,9 @@ lumen hdr external on|off|force
 lumen ddc external input hdmi1            # brightness | contrast | volume | input | mute
 lumen enable|disable external
 lumen main external
+lumen arrange                             # show layout
+lumen arrange external right builtin start   # left|right|above|below, start|center|end
+lumen arrange external at 1512 -200       # nearest snapped position
 lumen mirror external [off]
 lumen invert external on
 lumen nightshift 60                       # on | off | warmth 0–100
@@ -106,7 +122,7 @@ Needs the Xcode command-line tools (no Xcode project).
 ```sh
 git clone https://github.com/shashvat1965/lumen.git
 cd lumen
-./build.sh                                # → build/Lumen.app
+./build.sh                                # → build/Lumen.app and build/lumen (standalone CLI)
 cp -R build/Lumen.app /Applications/
 ```
 
@@ -129,6 +145,7 @@ build/Lumen.app/Contents/MacOS/Lumen --diagnose --window   # render the panel in
 | `Sources/VirtualScreens.swift` | `CGVirtualDisplay` virtual screens and flexible scaling |
 | `Sources/ScreenViewer.swift` | ScreenCaptureKit viewer window with filters |
 | `Sources/MediaKeys.swift`, `HUD.swift` | Brightness-key event tap and on-screen display |
+| `Sources/Arrangement.swift` | Display arrangement snapping and layout |
 | `Sources/CLI.swift` | `lumen` CLI and the IPC bridge to the running app |
 | `Sources/Theme.swift`, `Views.swift` | Design system and UI |
 | `Sources/Private.swift`, `Bridge.h` | Runtime-loaded private APIs |

@@ -8,7 +8,7 @@ enum CLI {
     static let requestName = Notification.Name("io.lumen.cli.request")
     static let replyName = Notification.Name("io.lumen.cli.reply")
     static let commands: Set<String> = ["help", "-h", "--help", "version", "list", "ls", "info", "brightness", "b", "dim", "xdr",
-        "resolution", "res", "modes", "colormodes", "colormode", "profiles", "profile", "hdr", "ddc", "enable", "disable", "main", "mirror", "invert",
+        "resolution", "res", "modes", "colormodes", "colormode", "profiles", "profile", "arrange", "hdr", "ddc", "enable", "disable", "main", "mirror", "invert",
         "nightshift", "grayscale", "dark", "virtual", "viewer"]
     /// Need the app's process (state lives there).
     static let appOnly: Set<String> = ["dim", "xdr", "invert", "virtual", "viewer"]
@@ -26,9 +26,13 @@ enum CLI {
             .contains { $0.processIdentifier != getpid() }
 
         if ["help", "-h", "--help"].contains(cmd) { print(help(Style(color: tty))); return 0 }
+        guard isCommand(cmd) else {
+            FileHandle.standardError.write("lumen: unknown command '\(cmd)'. Run `lumen help`.\n".data(using: .utf8)!)
+            return 2
+        }
         if cmd == "colormode" || !appRunning {
             if appOnly.contains(cmd) {
-                FileHandle.standardError.write("lumen: '\(cmd)' needs Lumen.app running (open -a Lumen)\n".data(using: .utf8)!)
+                FileHandle.standardError.write("lumen: '\(cmd)' needs Lumen.app running (open -a Lumen). Get it at https://github.com/shashvat1965/lumen/releases\n".data(using: .utf8)!)
                 return 2
             }
             DisplayManager.shared.prepareForCLI()
@@ -317,6 +321,34 @@ enum CLI {
             mgr.setEnabled(d, cmd == "enable")
             return "\(d.name): \(cmd)d" + (cmd == "disable" ? st.dim(" (until `lumen enable`, logout, or Lumen quits)") : "")
 
+        case "arrange":
+            let frames = Arrangement.bounds(mgr.displays)
+            guard let sel = arg(1) else {
+                return Arrangement.participants(mgr.displays).map { d in
+                    let f = frames[d.id]!
+                    return pad(st.bold(String(d.name.prefix(24))), 26) + pad("origin \(Int(f.minX)),\(Int(f.minY))", 20)
+                        + pad("\(Int(f.width))×\(Int(f.height))", 12) + (d.isMain ? st.accent("main") : "")
+                }.joined(separator: "\n")
+            }
+            let d = try display(sel)
+            guard frames[d.id] != nil else { throw Failure(message: "\(d.name) isn't part of the arrangement (disabled or mirroring)") }
+            var next = frames
+            if arg(2) == "at" {
+                guard let xs = arg(3), let ys = arg(4), let x = Double(xs), let y = Double(ys) else { throw Failure(message: "usage: lumen arrange <d> at X Y", code: 2) }
+                next[d.id] = Arrangement.snap(d.id, proposed: CGRect(origin: CGPoint(x: x, y: y), size: frames[d.id]!.size), in: frames)
+            } else {
+                guard let sideS = arg(2), let side = Arrangement.Side(rawValue: sideS), let otherS = arg(3) else {
+                    throw Failure(message: "usage: lumen arrange <d> left|right|above|below <other> [start|center|end]  ·  lumen arrange <d> at X Y", code: 2)
+                }
+                let other = try display(otherS)
+                guard other.id != d.id else { throw Failure(message: "a display can't be placed next to itself", code: 2) }
+                let align = Arrangement.Align(rawValue: arg(4) ?? "center") ?? .center
+                guard let r = Arrangement.place(d.id, side, of: other.id, align: align, in: frames) else { throw Failure(message: "\(other.name) isn't part of the arrangement") }
+                next[d.id] = r
+            }
+            guard Arrangement.apply(next) else { throw Failure(message: "macOS rejected the arrangement") }
+            return "\(d.name) moved" + (arg(2) == "at" ? "" : " \(arg(2)!) \(try display(arg(3)).name)")
+
         case "main":
             let d = try display(arg(1))
             mgr.makeMain(d)
@@ -433,6 +465,7 @@ enum CLI {
             ("ddc <d> <feature> [value]", "brightness, contrast, volume, input (e.g. hdmi1), mute"),
             ("enable|disable <d>", "Turn a display on/off (session only)"),
             ("main <d>", "Make the main display"),
+            ("arrange [<d> <side> <other> [align]]", "Show or change arrangement (left/right/above/below, start/center/end)"),
             ("mirror <d> [off]", "Mirror the main display onto <d>"),
             ("invert <d> [on|off]", "Invert colors on one display"),
             ("nightshift [on|off|0-100]", "Night Shift and warmth"),
