@@ -192,7 +192,6 @@ struct LevelBar: View {
     var tint: Color = T.warm
     var interactive = true
     var onChange: (Double) -> Void = { _ in }
-    @State private var hover = false
 
     var body: some View {
         GeometryReader { geo in
@@ -245,9 +244,7 @@ struct LevelBar: View {
                 onChange(v)
             })
         }
-        .frame(height: hover && interactive ? height + 2 : height)
-        .animation(.easeOut(duration: 0.12), value: hover)
-        .onHover { hover = $0 }
+        .frame(height: height)
     }
 }
 
