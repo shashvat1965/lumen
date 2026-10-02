@@ -278,9 +278,11 @@ enum CLI {
 
         case "profile":
             let d = try display(arg(1))
+            d.refreshProfiles()
             guard let v = arg(2) else { return "\(d.name): \(d.profileName)" + (d.customProfile ? st.dim(" (custom)") : "") }
             if v == "factory" || v == "reset" {
                 guard ColorProfiles.set(d.id, nil) else { throw Failure(message: "ColorSync refused the change") }
+                if !interactive { d.applyProfile(nil) }
                 return "\(d.name): factory profile restored"
             }
             let url: URL

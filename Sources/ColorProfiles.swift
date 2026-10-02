@@ -56,7 +56,7 @@ enum ColorProfiles {
         var out: [ColorProfile] = []
         func add(_ url: URL, _ group: ColorProfile.Group) {
             let key = url.resolvingSymlinksInPath().path
-            guard !seen.contains(key), let p = ColorSyncProfileCreateWithURL(url as CFURL, nil)?.takeRetainedValue(), isRGB(p) else { return }
+            guard !seen.contains(key), let p = ColorSyncProfileCreateWithURL(url as CFURL, nil)?.takeRetainedValue(), isRGBDisplay(p) else { return }
             seen.insert(key)
             let name = (ColorSyncProfileCopyDescriptionString(p)?.takeRetainedValue() as String?) ?? url.deletingPathExtension().lastPathComponent
             // macOS keeps an auto-generated profile for every monitor ever connected; only show this display's own.
@@ -84,22 +84,32 @@ enum ColorProfiles {
         return out.sorted { ($0.group.rawValue, $0.name.lowercased()) < ($1.group.rawValue, $1.name.lowercased()) }
     }
 
-    private static func isRGB(_ p: ColorSyncProfile) -> Bool {
-        guard let header = ColorSyncProfileCopyHeader(p)?.takeRetainedValue() as Data?, header.count >= 20 else { return false }
-        // ColorSync hands the header back in host order on Apple Silicon, so
-        // the 4-byte color-space tag may be byte-swapped.
-        let tag = header[16..<20]
-        return tag == Data("RGB ".utf8) || tag == Data(" BGR".utf8)
+    /// Only RGB *display* (\"mntr\") profiles. Named-color profiles such as
+    /// Web Safe Colors can technically be assigned to a screen and wreck it.
+    private static func isRGBDisplay(_ p: ColorSyncProfile) -> Bool {
+        guard let h = ColorSyncProfileCopyHeader(p)?.takeRetainedValue() as Data?, h.count >= 20 else { return false }
+        // ColorSync returns the header in host byte order, so 4-byte tags may be swapped.
+        func tag(_ r: Range<Int>, _ v: String) -> Bool { h[r] == Data(v.utf8) || h[r] == Data(v.utf8.reversed()) }
+        return tag(12..<16, "mntr") && tag(16..<20, "RGB ")
     }
 
-    /// Assigns `url` as the display's profile for the current user; nil restores the factory profile.
+    /// Assigns `url` to every profile slot of the display (macOS switches slots
+    /// with the link color mode, e.g. "HDMI HD" for YCbCr). nil clears every
+    /// custom slot, restoring the factory profiles.
     @discardableResult
     static func set(_ id: CGDirectDisplayID, _ url: URL?) -> Bool {
         guard let u = uuid(id) else { return false }
-        let dict: [String: Any] = [
-            kColorSyncDeviceDefaultProfileID.takeUnretainedValue() as String: (url as Any?) ?? kCFNull!,
-            kColorSyncProfileUserScope.takeUnretainedValue() as String: kCFPreferencesCurrentUser,
-        ]
+        let info = deviceInfo(id)
+        let defaultKey = kColorSyncDeviceDefaultProfileID.takeUnretainedValue() as String
+        var slots = Set([defaultKey])
+        if let factory = info?[kColorSyncFactoryProfiles.takeUnretainedValue() as String] as? [String: Any] {
+            slots.formUnion(factory.keys.filter { $0 != defaultKey })
+        }
+        if let custom = info?[kColorSyncCustomProfiles.takeUnretainedValue() as String] as? [String: Any] {
+            slots.formUnion(custom.keys)
+        }
+        var dict: [String: Any] = [kColorSyncProfileUserScope.takeUnretainedValue() as String: kCFPreferencesCurrentUser]
+        for slot in slots { dict[slot] = (url as Any?) ?? kCFNull! }
         return ColorSyncDeviceSetCustomProfiles(displayClass, u, dict as CFDictionary)
     }
 }
