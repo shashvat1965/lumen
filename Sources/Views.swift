@@ -18,6 +18,7 @@ struct DisplayCard: View {
                 VStack(spacing: 0) {
                     resolution
                     if !display.colorModes.isEmpty { colorModes }
+                    if !display.profiles.isEmpty { colorProfile }
                     hdr
                     if display.ddc != nil { monitor }
                     tools
@@ -164,6 +165,34 @@ struct DisplayCard: View {
         }
     }
 
+    private var colorProfile: some View {
+        DrillRow(icon: "paintpalette", title: "Color profile", value: display.profileName, open: row("profile")) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(ColorProfile.Group.allCases, id: \.self) { group in
+                    let items = display.profiles.filter { $0.group == group }
+                    if !items.isEmpty {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(group.title).font(T.f(11, .medium)).foregroundStyle(T.text3).padding(.bottom, 2)
+                            ForEach(items) { p in
+                                ProfileRow(profile: p, selected: p.url.resolvingSymlinksInPath() == display.profileURL?.resolvingSymlinksInPath()) {
+                                    display.applyProfile(p.url)
+                                }
+                            }
+                        }
+                    }
+                }
+                HStack(spacing: 6) {
+                    if display.customProfile {
+                        Button("Reset to factory") { display.applyProfile(nil) }.buttonStyle(PillStyle())
+                    }
+                    Button("Open ColorSync Utility") {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/ColorSync Utility.app"))
+                    }.buttonStyle(PillStyle())
+                }
+            }
+        }
+    }
+
     private var hdr: some View {
         Group {
             if display.hdrSupported {
@@ -242,6 +271,32 @@ struct DisplayCard: View {
                 }
             }
         }
+    }
+}
+
+struct ProfileRow: View {
+    let profile: ColorProfile
+    let selected: Bool
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: selected ? "checkmark" : "circle")
+                .font(.system(size: selected ? 10 : 6, weight: .bold))
+                .foregroundStyle(selected ? T.ion : T.text3)
+                .frame(width: 12)
+            Text(profile.name).font(T.f(12, selected ? .medium : .regular))
+                .foregroundStyle(selected ? T.text : T.text2).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 6).frame(height: 24)
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(selected ? T.ion.opacity(0.10) : Color.white.opacity(hover ? 0.05 : 0)))
+        .padding(.horizontal, -6)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
+        .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hover = h } }
+        .help(profile.url.path)
     }
 }
 

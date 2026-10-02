@@ -28,6 +28,7 @@
 ### Resolution & color
 - Resolution slider plus every mode the display offers, including all **HiDPI** variants, with a refresh-rate picker.
 - **Color modes** set how the Mac sends pixels down the cable. You choose bit depth (8/10/12-bit), **RGB or YCbCr**, **full or limited range**, and **SDR / HDR10 / HLG**, read directly from the Apple Silicon display controller. Every change reverts after 15 s unless you confirm it, so a bad mode can't leave you with a black screen.
+- **Color profiles**: switch the ICC profile per display (factory, the display's own, your calibrations, or standards like sRGB, Display P3, Adobe RGB, BT.709/2020), and reset to factory in one click.
 - **HDR** on/off, and **Force HDR** for monitors that support HDR signals but don't advertise them to macOS.
 - Per-display **invert colors**, plus system **grayscale**, **Night Shift** (with warmth) and **Dark Mode**.
 
@@ -80,6 +81,8 @@ lumen resolution external 2560x1080@100   # HiDPI preferred; --lodpi for native
 lumen modes external
 lumen colormodes external
 lumen colormode external 86               # asks to keep, reverts after 15 s (-y to skip)
+lumen profiles external                   # installed ICC profiles
+lumen profile external "Display P3"       # or a path to an .icc, or: factory
 lumen hdr external on|off|force
 lumen ddc external input hdmi1            # brightness | contrast | volume | input | mute
 lumen enable|disable external
@@ -121,6 +124,7 @@ build/Lumen.app/Contents/MacOS/Lumen --diagnose --window   # render the panel in
 | `Sources/Display.swift` | Display model, combined brightness zones, modes, enable/disable, mirroring |
 | `Sources/DDC.swift` | DDC/CI over `IOAVService` (Apple Silicon) |
 | `Sources/ColorModes.swift` | Link color modes via `IOMobileFramebuffer` |
+| `Sources/ColorProfiles.swift` | Per-display ICC profiles via ColorSync |
 | `Sources/XDRBoost.swift` | EDR overlay that pushes XDR panels past SDR brightness |
 | `Sources/VirtualScreens.swift` | `CGVirtualDisplay` virtual screens and flexible scaling |
 | `Sources/ScreenViewer.swift` | ScreenCaptureKit viewer window with filters |

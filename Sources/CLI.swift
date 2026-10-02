@@ -8,7 +8,7 @@ enum CLI {
     static let requestName = Notification.Name("io.lumen.cli.request")
     static let replyName = Notification.Name("io.lumen.cli.reply")
     static let commands: Set<String> = ["help", "-h", "--help", "version", "list", "ls", "info", "brightness", "b", "dim", "xdr",
-        "resolution", "res", "modes", "colormodes", "colormode", "hdr", "ddc", "enable", "disable", "main", "mirror", "invert",
+        "resolution", "res", "modes", "colormodes", "colormode", "profiles", "profile", "hdr", "ddc", "enable", "disable", "main", "mirror", "invert",
         "nightshift", "grayscale", "dark", "virtual", "viewer"]
     /// Need the app's process (state lives there).
     static let appOnly: Set<String> = ["dim", "xdr", "invert", "virtual", "viewer"]
@@ -260,6 +260,33 @@ enum CLI {
             d.framebuffer?.setColor(previous.id)
             return "\nReverted to \(previous.summary)."
 
+        case "profiles":
+            let d = try display(arg(1))
+            var out: [String] = []
+            let cur = d.profileURL?.resolvingSymlinksInPath()
+            for g in ColorProfile.Group.allCases {
+                let items = d.profiles.filter { $0.group == g }
+                guard !items.isEmpty else { continue }
+                out.append(st.bold(g.title))
+                out += items.map { ($0.url.resolvingSymlinksInPath() == cur ? st.accent("● ") : "  ") + $0.name + st.dim("  " + $0.url.lastPathComponent) }
+            }
+            return out.joined(separator: "\n")
+
+        case "profile":
+            let d = try display(arg(1))
+            guard let v = arg(2) else { return "\(d.name): \(d.profileName)" + (d.customProfile ? st.dim(" (custom)") : "") }
+            if v == "factory" || v == "reset" {
+                guard ColorProfiles.set(d.id, nil) else { throw Failure(message: "ColorSync refused the change") }
+                return "\(d.name): factory profile restored"
+            }
+            let url: URL
+            if FileManager.default.fileExists(atPath: (v as NSString).expandingTildeInPath) { url = URL(fileURLWithPath: (v as NSString).expandingTildeInPath) }
+            else if let p = d.profiles.first(where: { $0.name.lowercased() == v.lowercased() }) ?? d.profiles.first(where: { $0.name.lowercased().contains(v.lowercased()) }) { url = p.url }
+            else { throw Failure(message: "no profile matches '\(v)'; see `lumen profiles \(arg(1)!)`") }
+            guard ColorProfiles.set(d.id, url) else { throw Failure(message: "ColorSync refused the change") }
+            if !interactive { d.applyProfile(url) }
+            return "\(d.name): \(url.deletingPathExtension().lastPathComponent)"
+
         case "hdr":
             let d = try display(arg(1))
             if arg(2) == "force" { d.setForcedHDR(true); return "\(d.name): forcing HDR" }
@@ -400,6 +427,8 @@ enum CLI {
             ("modes <d>", "All resolution modes"),
             ("colormodes <d>", "Link color modes (bit depth, RGB/YCbCr, range, HDR)"),
             ("colormode <d> <id> [-y]", "Switch color mode; reverts in 15 s unless confirmed"),
+            ("profiles <d>", "Installed ICC color profiles"),
+            ("profile <d> [name|path|factory]", "Get/set the display's color profile"),
             ("hdr <d> [on|off|force]", "HDR, or force it on displays that don't advertise it"),
             ("ddc <d> <feature> [value]", "brightness, contrast, volume, input (e.g. hdmi1), mute"),
             ("enable|disable <d>", "Turn a display on/off (session only)"),

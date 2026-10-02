@@ -10,7 +10,7 @@ mkdir -p $APP/Contents/MacOS $APP/Contents/Resources
 $DEVELOPER_DIR/usr/bin/swiftc -O -parse-as-library -swift-version 5 -sdk $SDK \
   -target arm64-apple-macos26.0 \
   -framework AppKit -framework SwiftUI -framework MetalKit -framework IOKit -framework ServiceManagement \
-  -import-objc-header Sources/Bridge.h -framework ScreenCaptureKit -framework CoreImage \
+  -import-objc-header Sources/Bridge.h -framework ScreenCaptureKit -framework CoreImage -framework ColorSync \
   Sources/*.swift -o $APP/Contents/MacOS/Lumen
 cp Info.plist $APP/Contents/Info.plist
 [ -f AppIcon.icns ] && cp AppIcon.icns $APP/Contents/Resources/

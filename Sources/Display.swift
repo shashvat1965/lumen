@@ -86,6 +86,33 @@ final class Display: ObservableObject, Identifiable {
     var persistKey: String { "\(CGDisplayVendorNumber(id))-\(CGDisplayModelNumber(id))-\(CGDisplaySerialNumber(id))" }
     private func key(_ k: String) -> String { "d.\(persistKey).\(k)" }
 
+    // MARK: ICC color profile
+
+    @Published var profiles: [ColorProfile] = []
+    @Published var profileURL: URL?
+    @Published var customProfile = false
+
+    var profileName: String {
+        guard let u = profileURL else { return "Unknown" }
+        return profiles.first { $0.url.resolvingSymlinksInPath() == u.resolvingSymlinksInPath() }?.name ?? u.deletingPathExtension().lastPathComponent
+    }
+
+    func refreshProfiles() {
+        profiles = ColorProfiles.available(for: id, name: name)
+        profileURL = ColorProfiles.current(id)
+        customProfile = ColorProfiles.hasCustom(id)
+    }
+
+    func applyProfile(_ url: URL?) {
+        guard ColorProfiles.set(id, url) else { return }
+        // ColorSync replaces gamma tables, so reapply our dimming/invert after it settles.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [self] in
+            refreshProfiles()
+            gammaTouched = false
+            applyGamma()
+        }
+    }
+
     // MARK: Color modes (link color element)
 
     @Published var colorModes: [ColorMode] = []
@@ -233,6 +260,7 @@ final class Display: ObservableObject, Identifiable {
             r.append(("Colorimetry", "\(cm.colorimetry)"))
         }
         if let t = framebuffer?.current?.timing { r.append(("Link timing", "#\(t)")) }
+        if let u = profileURL { r.append(("ICC profile", (customProfile ? "Custom · " : "") + u.lastPathComponent)) }
         r.append(("HDR mode", hdrSupported ? (hdrEnabled ? "On" : "Off") : "Unsupported"))
         if !isBuiltin { r.append(("DDC/CI", ddc == nil ? "Not found" : ddcResponds ? "Read/Write" : "Write-only")) }
         r.append(("Gamma", gammaTouched ? String(format: "Custom (%.2f%@)", softDim, inverted ? ", inv" : "") : "ColorSync"))
@@ -334,7 +362,7 @@ final class Display: ObservableObject, Identifiable {
         modes = all.filter { seen.insert($0.id).inserted }
             .sorted { ($0.width, $0.height, $0.refresh) < ($1.width, $1.height, $1.refresh) }
         if let m = CGDisplayCopyDisplayMode(id) { current = ModeOption(m) }
-        if isActive { refreshColorModes() }
+        if isActive { refreshColorModes(); refreshProfiles() }
     }
 
     func refreshDDC() {
