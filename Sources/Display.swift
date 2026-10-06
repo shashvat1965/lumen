@@ -195,6 +195,11 @@ final class Display: ObservableObject, Identifiable {
         isBuiltin && (screen?.maximumPotentialExtendedDynamicRangeColorComponentValue ?? 1) > 1.05
     }
 
+    /// Gamma multiplier for XDR boost: the boost while it is in effect, else 1.
+    var gammaGain: Double {
+        isBuiltin && isActive && boost > 1.001 && screen != nil ? boost : 1
+    }
+
     var maxBoost: Double {
         min(Settings.xdrMax, Double(screen?.maximumPotentialExtendedDynamicRangeColorComponentValue ?? 1))
     }
@@ -456,7 +461,7 @@ final class DisplayManager: ObservableObject {
             channels = DDCChannel.discover()
             refresh()
             // Gamma tables reset on reconfiguration, so reapply ours.
-            for d in displays where d.gammaTouched || d.softDim < 0.999 || d.inverted { d.gammaTouched = false; applyGamma(d) }
+            for d in displays where d.gammaTouched || d.softDim < 0.999 || d.inverted || d.gammaGain > 1 { d.gammaTouched = false; applyGamma(d) }
             for d in displays { XDRBoost.shared.update(for: d) }
             for d in displays where !previous.contains(d.id) { d.refreshDDC() }
         }
@@ -503,19 +508,48 @@ final class DisplayManager: ObservableObject {
     }
 
     func applyGamma(_ d: Display) {
-        if d.softDim >= 0.999 && !d.inverted {
+        let gain = Float(d.gammaGain)
+        if d.softDim >= 0.999 && !d.inverted && gain <= 1 {
             guard d.gammaTouched else { return }
             d.gammaTouched = false
-            CGDisplayRestoreColorSyncSettings()
-            for other in displays where other.id != d.id && (other.softDim < 0.999 || other.inverted) {
-                other.gammaTouched = false
-                applyGamma(other)
-            }
+            restoreColorSync(except: d)
             return
         }
+        if gain > 1 { applyBoost(d, gain); return }
         let s = Float(d.softDim)
         let (lo, hi): (Float, Float) = d.inverted ? (s, 0) : (0, s)
         CGSetDisplayTransferByFormula(d.id, lo, hi, 1, lo, hi, 1, lo, hi, 1)
+        d.gammaTouched = true
+    }
+
+    /// Restores every display's ColorSync table, then reapplies ours on the others.
+    private func restoreColorSync(except d: Display) {
+        CGDisplayRestoreColorSyncSettings()
+        for other in displays where other.id != d.id && (other.softDim < 0.999 || other.inverted || other.gammaGain > 1) {
+            other.gammaTouched = false
+            applyGamma(other)
+        }
+    }
+
+    /// The display's ColorSync table, captured while untouched, for XDR boost.
+    private var boostBase: [CGDirectDisplayID: (r: [CGGammaValue], g: [CGGammaValue], b: [CGGammaValue])] = [:]
+
+    /// XDR boost: the ColorSync table scaled past 1. The trigger window in
+    /// XDRBoost keeps EDR headroom open, so values above 1 brighten instead of clip.
+    private func applyBoost(_ d: Display, _ gain: Float) {
+        if !d.gammaTouched || boostBase[d.id] == nil {
+            if d.gammaTouched { d.gammaTouched = false; restoreColorSync(except: d) }
+            let n: UInt32 = 256
+            var r = [CGGammaValue](repeating: 0, count: Int(n)), g = r, b = r
+            var count: UInt32 = 0
+            guard CGGetDisplayTransferByTable(d.id, n, &r, &g, &b, &count) == .success, count > 0 else { return }
+            boostBase[d.id] = (Array(r.prefix(Int(count))), Array(g.prefix(Int(count))), Array(b.prefix(Int(count))))
+        }
+        guard let base = boostBase[d.id] else { return }
+        let k = gain * Float(d.softDim)
+        func scaled(_ t: [CGGammaValue]) -> [CGGammaValue] { (d.inverted ? t.reversed() : t).map { $0 * k } }
+        let r = scaled(base.r), g = scaled(base.g), b = scaled(base.b)
+        CGSetDisplayTransferByTable(d.id, UInt32(r.count), r, g, b)
         d.gammaTouched = true
     }
 

@@ -141,7 +141,7 @@ build/Lumen.app/Contents/MacOS/Lumen --diagnose --window   # render the panel in
 | `Sources/DDC.swift` | DDC/CI over `IOAVService` (Apple Silicon) |
 | `Sources/ColorModes.swift` | Link color modes via `IOMobileFramebuffer` |
 | `Sources/ColorProfiles.swift` | Per-display ICC profiles via ColorSync |
-| `Sources/XDRBoost.swift` | EDR overlay that pushes XDR panels past SDR brightness |
+| `Sources/XDRBoost.swift` | EDR trigger pixel that opens XDR headroom; the boost itself is a gamma table |
 | `Sources/VirtualScreens.swift` | `CGVirtualDisplay` virtual screens and flexible scaling |
 | `Sources/ScreenViewer.swift` | ScreenCaptureKit viewer window with filters |
 | `Sources/MediaKeys.swift`, `HUD.swift` | Brightness-key event tap and on-screen display |

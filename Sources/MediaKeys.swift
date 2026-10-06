@@ -9,6 +9,10 @@ final class MediaKeys {
     static let shared = MediaKeys()
     private var tap: CFMachPort?
     private var retry: Timer?
+    /// Brightness keys whose key-down reached macOS. Their key-up must reach it
+    /// too: a swallowed key-up leaves macOS thinking the key is still held, and it
+    /// then ignores every brightness key until that key is released again.
+    private var passedDown: Set<Int> = []
 
     var isTrusted: Bool { AXIsProcessTrusted() }
 
@@ -61,20 +65,24 @@ final class MediaKeys {
         let down = ((ns.data1 & 0xFF00) >> 8) == 0xA
         guard code == 2 || code == 3 else { return false } // NX_KEYTYPE_BRIGHTNESS_UP / _DOWN
         let dir: Double = code == 2 ? 1 : -1
-
+        // A key-up follows its key-down, whatever the brightness is now.
+        if !down { return passedDown.remove(code) == nil }
         let mgr = DisplayManager.shared
-        guard let d = Settings.keysFollowCursor ? (mgr.displayUnderCursor ?? mgr.displays.first { $0.isMain }) : mgr.displays.first(where: { $0.isMain }) else { return false }
+        let target = Settings.keysFollowCursor ? (mgr.displayUnderCursor ?? mgr.displays.first { $0.isMain }) : mgr.displays.first(where: { $0.isMain })
+        guard let d = target, takes(d, dir) else { passedDown.insert(code); return false }
+        d.step(dir)
+        HUD.shared.show(for: d)
+        return true
+    }
 
+    /// Whether Lumen handles this press instead of macOS.
+    private func takes(_ d: Display, _ dir: Double) -> Bool {
         if d.isBuiltin {
             // Let macOS own the normal range; we only take over at either end.
             if let get = Private.getBrightness { var b: Float = 0; if get(d.id, &b) == 0 { d.brightness = Double(b) } }
             let intoXDR = d.xdrCapable && d.maxBoost > 1.01 && ((dir > 0 && d.brightness >= 0.999) || (dir < 0 && d.boost > 1.001))
             let intoDim = Settings.extendDimming && ((dir < 0 && d.brightness <= 0.001) || (dir > 0 && d.softDim < 0.999))
-            guard intoXDR || intoDim else { return false }
-        }
-        if down {
-            d.step(dir)
-            HUD.shared.show(for: d)
+            return intoXDR || intoDim
         }
         return true
     }

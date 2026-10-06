@@ -1,46 +1,53 @@
 import AppKit
 import MetalKit
 
-/// Pushes an XDR panel past its SDR brightness ceiling by laying a fullscreen
-/// EDR surface over the screen and multiplying everything beneath it by a
-/// value > 1. macOS raises the backlight to make room for the EDR headroom.
+/// Pushes an XDR panel past its SDR brightness ceiling. A 1×1 EDR window in the
+/// screen's corner keeps macOS's EDR headroom open, which raises the backlight;
+/// the boost itself is a gamma table scaled past 1 (`DisplayManager.applyGamma`).
+///
+/// This replaced a fullscreen overlay with a multiply compositing filter: during
+/// a Space transition WindowServer drew that overlay without the filter, so the
+/// whole screen flashed white.
 @MainActor
 final class XDRBoost {
     static let shared = XDRBoost()
-    private var overlays: [CGDirectDisplayID: (window: NSWindow, view: BoostView)] = [:]
+    private var triggers: [CGDirectDisplayID: (window: NSWindow, view: BoostView)] = [:]
 
     func update(for d: Display) {
-        guard d.isBuiltin, d.isActive, d.boost > 1.001, let screen = d.screen,
+        guard d.gammaGain > 1, let screen = d.screen,
               let device = MTLCreateSystemDefaultDevice() else { remove(d.id); return }
-        if let o = overlays[d.id] {
-            o.window.setFrame(screen.frame, display: false)
-            o.view.factor = d.boost
+        let frame = CGRect(x: screen.frame.minX, y: screen.frame.maxY - 1, width: 1, height: 1)
+        if let t = triggers[d.id] {
+            t.window.setFrame(frame, display: false)
+            t.view.factor = d.boost
             return
         }
-        let w = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
-        w.setFrame(screen.frame, display: false)
+        let w = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+        w.setFrame(frame, display: false)
         w.isOpaque = false
         w.backgroundColor = .clear
         w.hasShadow = false
         w.ignoresMouseEvents = true
         w.level = .screenSaver
         w.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+        w.animationBehavior = .none
         w.sharingType = .none
         w.isReleasedWhenClosed = false
-        let v = BoostView(frame: CGRect(origin: .zero, size: screen.frame.size), device: device)
+        let v = BoostView(frame: CGRect(x: 0, y: 0, width: 1, height: 1), device: device)
         v.factor = d.boost
         w.contentView = v
         w.orderFrontRegardless()
-        overlays[d.id] = (w, v)
+        triggers[d.id] = (w, v)
     }
 
     func remove(_ id: CGDirectDisplayID) {
-        overlays.removeValue(forKey: id)?.window.close()
+        triggers.removeValue(forKey: id)?.window.close()
     }
 
-    func removeAll() { overlays.keys.forEach(remove) }
+    func removeAll() { triggers.keys.forEach(remove) }
 }
 
+/// One EDR pixel. Its only job is to exist, so macOS keeps the headroom open.
 final class BoostView: MTKView, MTKViewDelegate {
     var factor: Double = 1
     private var queue: MTLCommandQueue?
@@ -51,12 +58,13 @@ final class BoostView: MTKView, MTKViewDelegate {
         colorPixelFormat = .rgba16Float
         colorspace = CGColorSpace(name: CGColorSpace.extendedLinearDisplayP3)
         framebufferOnly = true
-        preferredFramesPerSecond = 10
+        autoResizeDrawable = false
+        drawableSize = CGSize(width: 1, height: 1)
+        preferredFramesPerSecond = 5
         if let l = layer as? CAMetalLayer {
             l.wantsExtendedDynamicRangeContent = true
             l.isOpaque = false
         }
-        layer?.compositingFilter = "multiplyBlendMode"
         delegate = self
     }
 

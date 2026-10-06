@@ -180,11 +180,11 @@ enum CLI {
                 guard d.xdrCapable else { throw Failure(message: "\(d.name) has no XDR headroom") }
                 if interactive { throw Failure(message: "XDR boost needs Lumen.app running") }
                 d.softDim = 1; d.setHardware(1); d.boost = min(p / 100, d.maxBoost)
-                XDRBoost.shared.update(for: d); d.applyGamma(); d.persist()
+                d.applyGamma(); XDRBoost.shared.update(for: d); d.persist()
             } else if d.hasHardwareBrightness {
                 d.boost = 1; d.softDim = 1
                 d.setHardware(max(p, 0) / 100)
-                if !interactive { XDRBoost.shared.update(for: d); d.applyGamma(); d.persist() }
+                if !interactive { d.applyGamma(); XDRBoost.shared.update(for: d); d.persist() }
             } else {
                 if interactive { throw Failure(message: "\(d.name) has no hardware brightness; software dimming needs Lumen.app running") }
                 d.softDim = max(0.08, p / 100); d.applyGamma(); d.persist()
@@ -206,7 +206,7 @@ enum CLI {
                 guard let f = Double(v.replacingOccurrences(of: "x", with: "")) else { throw Failure(message: "expected a factor like 1.5 or off", code: 2) }
                 d.setHardware(1); d.boost = min(max(f, 1), d.maxBoost)
             }
-            XDRBoost.shared.update(for: d); d.persist()
+            d.applyGamma(); XDRBoost.shared.update(for: d); d.persist()
             return String(format: "%@: XDR %.2f×", d.name, d.boost)
 
         case "resolution", "res":
